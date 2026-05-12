@@ -1,0 +1,7 @@
+build/bin/
+frontend/dist/
+node_modules/
+
+.DS_Store
+*.log
+*.tmp
