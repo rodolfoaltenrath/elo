@@ -13,6 +13,16 @@ O projeto evita que pessoas usuárias precisem configurar Java legado, smartcard
 - Registro do driver PKCS#11 no banco NSS do navegador.
 - Instalação assistida de driver proprietário fornecido pela pessoa usuária.
 - Execução isolada de arquivos `.jnlp` e `.jar` com Java 8.
+- Detecção automática da distribuição Linux para escolher `pacman` ou `apt`.
+
+## Distribuições
+
+O Elo tem automação inicial para:
+
+- Arch Linux, CachyOS, Manjaro, EndeavourOS e derivados com `pacman`.
+- Debian, Ubuntu, Deepin, Linux Mint, Pop!_OS, Zorin OS e derivados com `apt`.
+
+Em outras distribuições, o app ainda pode diagnosticar parte do ambiente, mas bloqueia a correção automática até existir uma estratégia segura para o gerenciador de pacotes.
 
 ## Desenvolvimento
 
