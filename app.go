@@ -22,7 +22,29 @@ const (
 	starSignTokenUdevRule = `SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="1059", ATTR{idProduct}=="0019", GROUP="pcscd", MODE="0660", TAG+="uaccess"`
 )
 
-var requiredPackages = []string{"ccid", "opensc", "pcsclite"}
+type packageSpec struct {
+	ID       string
+	Label    string
+	Arch     string
+	Debian   string
+	Required bool
+}
+
+type linuxSupport struct {
+	ID             string
+	Name           string
+	Family         string
+	PackageManager string
+	Supported      bool
+}
+
+var requiredPackages = []packageSpec{
+	{ID: "ccid", Label: "Driver do leitor", Arch: "ccid", Debian: "libccid", Required: true},
+	{ID: "opensc", Label: "Leitura do certificado", Arch: "opensc", Debian: "opensc", Required: true},
+	{ID: "pcsc", Label: "Comunicação PC/SC", Arch: "pcsclite", Debian: "pcscd", Required: true},
+	{ID: "pcsc-tools", Label: "Ferramentas do token", Arch: "pcsc-tools", Debian: "pcsc-tools", Required: false},
+	{ID: "nss-tools", Label: "Integração com navegador", Arch: "nss", Debian: "libnss3-tools", Required: true},
+}
 
 var pkcs11ModuleCandidates = []string{
 	"/usr/local/lib/elo-pkcs11/*.so",
@@ -61,6 +83,8 @@ type SystemStatus struct {
 	Packages        []StatusItem `json:"packages"`
 	AllOK           bool         `json:"allOk"`
 	CheckedAt       string       `json:"checkedAt"`
+	PlatformName    string       `json:"platformName"`
+	PackageManager  string       `json:"packageManager"`
 	PlatformWarning string       `json:"platformWarning,omitempty"`
 }
 
@@ -82,8 +106,9 @@ func (a *App) startup(ctx context.Context) {
 }
 
 // CheckStatus verifies the Java 8 runtime, smartcard service, token visibility
-// and Arch packages.
+// and distro-specific packages.
 func (a *App) CheckStatus() SystemStatus {
+	support := detectLinuxSupport()
 	readerOK, readerDetail := smartCardReaderStatus()
 	certOK, certDetail := certificateStatus()
 	browserOK, browserDetail := browserPKCS11Status()
@@ -119,7 +144,9 @@ func (a *App) CheckStatus() SystemStatus {
 			Detail:      humanizeBrowserDetail(browserDetail),
 			Remediation: "Clique em Corrigir Problemas e reinicie o navegador",
 		},
-		CheckedAt: time.Now().Format("02/01/2006 15:04:05"),
+		CheckedAt:      time.Now().Format("02/01/2006 15:04:05"),
+		PlatformName:   support.displayName(),
+		PackageManager: support.PackageManager,
 	}
 
 	if status.Java8.OK {
@@ -131,11 +158,12 @@ func (a *App) CheckStatus() SystemStatus {
 
 	status.Packages = make([]StatusItem, 0, len(requiredPackages))
 	for _, pkg := range requiredPackages {
-		ok := isPacmanPackageInstalled(pkg)
+		distroPackage := pkg.nameFor(support)
+		ok := isPackageInstalled(support, distroPackage)
 		item := StatusItem{
-			Name:        packageLabel(pkg),
+			Name:        pkg.Label,
 			OK:          ok,
-			Detail:      fmt.Sprintf("Pacote Arch: %s", pkg),
+			Detail:      packageDetail(support, distroPackage),
 			Remediation: "Instalar dependências de smartcard",
 		}
 		if ok {
@@ -145,12 +173,16 @@ func (a *App) CheckStatus() SystemStatus {
 	}
 
 	status.AllOK = status.Java8.OK && status.TokenService.OK && status.TokenReader.OK && status.Certificate.OK && status.BrowserPKCS11.OK
-	for _, pkg := range status.Packages {
-		status.AllOK = status.AllOK && pkg.OK
+	for i, pkg := range status.Packages {
+		if requiredPackages[i].Required {
+			status.AllOK = status.AllOK && pkg.OK
+		}
 	}
 
 	if runtime.GOOS != "linux" {
-		status.PlatformWarning = "Este gerenciador foi desenhado para Arch Linux/CachyOS."
+		status.PlatformWarning = "Este gerenciador foi desenhado para Linux."
+	} else if !support.Supported {
+		status.PlatformWarning = "Distribuição detectada, mas ainda sem automação completa: " + support.displayName()
 	}
 
 	return status
@@ -166,18 +198,15 @@ func (a *App) AutoFix() (ActionResult, error) {
 	if _, err := exec.LookPath("pkexec"); err != nil {
 		return ActionResult{OK: false, Message: "pkexec não foi encontrado. Instale/ative o Polkit no sistema."}, nil
 	}
+	support := detectLinuxSupport()
+	if !support.Supported {
+		return ActionResult{
+			OK:      false,
+			Message: "Ainda não há correção automática para " + support.displayName() + ". O Elo já automatiza Arch/CachyOS e Debian/Ubuntu/Deepin.",
+		}, nil
+	}
 
-	script := strings.Join([]string{
-		"set -e",
-		"pacman -S --needed --noconfirm jre8-openjdk icedtea-web ccid opensc pcsclite",
-		"getent group pcscd >/dev/null || groupadd --system pcscd",
-		fmt.Sprintf("printf '%%s\\n' %s > %s", shellQuote(starSignTokenUdevRule), shellQuote(eloUdevRule)),
-		"udevadm control --reload-rules",
-		"udevadm trigger --subsystem-match=usb || true",
-		"systemctl enable --now pcscd.socket",
-		"systemctl restart pcscd.socket",
-		"systemctl restart pcscd.service || true",
-	}, "\n")
+	script := autoFixScript(support)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
@@ -200,6 +229,12 @@ func (a *App) AutoFix() (ActionResult, error) {
 	}
 
 	status := a.CheckStatus()
+	if !status.Java8.OK {
+		return ActionResult{
+			OK:      false,
+			Message: "A configuração básica foi concluída, mas o Java 8 não ficou disponível nesta distribuição. Pode ser necessário instalar um pacote Java 8 compatível manualmente.",
+		}, nil
+	}
 	if !status.TokenReader.OK && needsManufacturerDriver(status.TokenReader.Detail) {
 		return ActionResult{
 			OK:      false,
@@ -265,7 +300,15 @@ func (a *App) InstallDriverFile(path string) (ActionResult, error) {
 		return ActionResult{OK: false, Message: "pkexec não foi encontrado. Instale/ative o Polkit no sistema."}, nil
 	}
 
-	script := driverInstallScript(cleanPath, kind)
+	support := detectLinuxSupport()
+	if !support.Supported {
+		return ActionResult{
+			OK:      false,
+			Message: "Ainda não há instalação automática de driver para " + support.displayName() + ".",
+		}, nil
+	}
+
+	script := driverInstallScript(support, cleanPath, kind)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 
@@ -398,23 +441,212 @@ func validateDriverFile(path string) (string, string, error) {
 	}
 }
 
-func driverInstallScript(path, kind string) string {
-	common := []string{
-		"set -e",
-		"pacman -S --needed --noconfirm libarchive pcsc-tools ccid opensc pcsclite",
-		fmt.Sprintf("mkdir -p %s", shellQuote(eloPKCS11Dir)),
+func detectLinuxSupport() linuxSupport {
+	support := linuxSupport{
+		ID:             runtime.GOOS,
+		Name:           runtime.GOOS,
+		Family:         runtime.GOOS,
+		PackageManager: "",
+		Supported:      false,
 	}
+	if runtime.GOOS != "linux" {
+		return support
+	}
+
+	values := osReleaseValues()
+	id := strings.ToLower(values["ID"])
+	name := values["PRETTY_NAME"]
+	if name == "" {
+		name = id
+	}
+	like := strings.ToLower(values["ID_LIKE"])
+	tokens := append(strings.Fields(like), id)
+
+	support.ID = id
+	support.Name = name
+
+	if hasAny(tokens, "arch", "cachyos", "manjaro", "endeavouros", "garuda") {
+		support.Family = "Arch"
+		support.PackageManager = "pacman"
+		support.Supported = true
+		return support
+	}
+	if hasAny(tokens, "debian", "ubuntu", "deepin", "linuxmint", "pop", "zorin") {
+		support.Family = "Debian/Ubuntu"
+		support.PackageManager = "apt"
+		support.Supported = true
+		return support
+	}
+
+	support.Family = name
+	return support
+}
+
+func osReleaseValues() map[string]string {
+	content, err := os.ReadFile("/etc/os-release")
+	if err != nil {
+		return map[string]string{}
+	}
+
+	values := map[string]string{}
+	for _, line := range strings.Split(string(content), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		value = strings.Trim(value, `"`)
+		values[key] = value
+	}
+	return values
+}
+
+func hasAny(values []string, candidates ...string) bool {
+	for _, value := range values {
+		value = strings.TrimSpace(strings.ToLower(value))
+		for _, candidate := range candidates {
+			if value == candidate {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (support linuxSupport) displayName() string {
+	if support.Name != "" {
+		return support.Name
+	}
+	if support.ID != "" {
+		return support.ID
+	}
+	return "Linux"
+}
+
+func autoFixScript(support linuxSupport) string {
+	lines := []string{"set -e"}
+	lines = append(lines, packageInstallCommands(support, autoFixPackages(support))...)
+	lines = append(lines, java8InstallFallbackCommands(support)...)
+	lines = append(lines,
+		"getent group pcscd >/dev/null || groupadd --system pcscd",
+		fmt.Sprintf("printf '%%s\\n' %s > %s", shellQuote(starSignTokenUdevRule), shellQuote(eloUdevRule)),
+		"udevadm control --reload-rules",
+		"udevadm trigger --subsystem-match=usb || true",
+		"systemctl enable --now pcscd.socket || systemctl enable --now pcscd.service || true",
+		"systemctl restart pcscd.socket || true",
+		"systemctl restart pcscd.service || true",
+	)
+	return strings.Join(lines, "\n")
+}
+
+func autoFixPackages(support linuxSupport) []string {
+	packages := requiredPackageNames(support)
+	switch support.PackageManager {
+	case "pacman":
+		return append([]string{"jre8-openjdk", "icedtea-web"}, packages...)
+	case "apt":
+		return append([]string{"icedtea-netx"}, packages...)
+	default:
+		return packages
+	}
+}
+
+func driverInstallPackages(support linuxSupport) []string {
+	packages := requiredPackageNames(support)
+	switch support.PackageManager {
+	case "pacman":
+		return append([]string{"libarchive"}, packages...)
+	case "apt":
+		return append([]string{"libarchive-tools"}, packages...)
+	default:
+		return packages
+	}
+}
+
+func requiredPackageNames(support linuxSupport) []string {
+	packages := make([]string, 0, len(requiredPackages))
+	for _, spec := range requiredPackages {
+		name := spec.nameFor(support)
+		if name != "" {
+			packages = append(packages, name)
+		}
+	}
+	return packages
+}
+
+func (spec packageSpec) nameFor(support linuxSupport) string {
+	switch support.PackageManager {
+	case "apt":
+		return spec.Debian
+	case "pacman":
+		return spec.Arch
+	default:
+		if spec.Arch != "" {
+			return spec.Arch
+		}
+		return spec.ID
+	}
+}
+
+func packageInstallCommands(support linuxSupport, packages []string) []string {
+	if len(packages) == 0 {
+		return nil
+	}
+
+	quoted := make([]string, 0, len(packages))
+	for _, pkg := range packages {
+		quoted = append(quoted, shellQuote(pkg))
+	}
+
+	switch support.PackageManager {
+	case "pacman":
+		return []string{"pacman -S --needed --noconfirm " + strings.Join(quoted, " ")}
+	case "apt":
+		return []string{
+			"export DEBIAN_FRONTEND=noninteractive",
+			"apt-get update",
+			"apt-get install -y " + strings.Join(quoted, " "),
+		}
+	default:
+		return nil
+	}
+}
+
+func java8InstallFallbackCommands(support linuxSupport) []string {
+	if support.PackageManager != "apt" {
+		return nil
+	}
+	return []string{
+		"apt-get install -y openjdk-8-jre || apt-get install -y openjdk-8-jre-headless || true",
+	}
+}
+
+func extractDebCommands(path string) []string {
+	return []string{
+		"tmpdir=$(mktemp -d)",
+		"trap 'rm -rf \"$tmpdir\"' EXIT",
+		fmt.Sprintf("bsdtar -xf %s -C \"$tmpdir\"", shellQuote(path)),
+		"data_archive=$(find \"$tmpdir\" -maxdepth 1 -type f -name 'data.tar*' | head -n 1)",
+		"test -n \"$data_archive\"",
+		"bsdtar -xf \"$data_archive\" -C /",
+	}
+}
+
+func driverInstallScript(support linuxSupport, path, kind string) string {
+	common := []string{"set -e"}
+	common = append(common, packageInstallCommands(support, driverInstallPackages(support))...)
+	common = append(common, fmt.Sprintf("mkdir -p %s", shellQuote(eloPKCS11Dir)))
 
 	switch kind {
 	case "deb":
-		common = append(common,
-			"tmpdir=$(mktemp -d)",
-			"trap 'rm -rf \"$tmpdir\"' EXIT",
-			fmt.Sprintf("bsdtar -xf %s -C \"$tmpdir\"", shellQuote(path)),
-			"data_archive=$(find \"$tmpdir\" -maxdepth 1 -type f -name 'data.tar*' | head -n 1)",
-			"test -n \"$data_archive\"",
-			"bsdtar -xf \"$data_archive\" -C /",
-		)
+		if support.PackageManager == "apt" {
+			common = append(common, fmt.Sprintf("apt-get install -y %s", shellQuote(path)))
+		} else {
+			common = append(common, extractDebCommands(path)...)
+		}
 	case "rpm":
 		common = append(common, fmt.Sprintf("bsdtar -xf %s -C /", shellQuote(path)))
 	case "tar":
@@ -443,8 +675,16 @@ func java8Home() (string, bool) {
 	candidates := []string{
 		filepath.Join(javaBase, "jre"),
 		javaBase,
+		"/usr/lib/jvm/java-8-openjdk-amd64/jre",
+		"/usr/lib/jvm/java-8-openjdk-amd64",
+		"/usr/lib/jvm/java-8-openjdk-arm64/jre",
+		"/usr/lib/jvm/java-8-openjdk-arm64",
+		"/usr/lib/jvm/java-1.8.0-openjdk/jre",
+		"/usr/lib/jvm/java-1.8.0-openjdk",
+		"/usr/lib/jvm/jre-1.8.0-openjdk",
 		"/usr/lib/jvm/default-runtime",
 	}
+	candidates = append(candidates, java8GlobCandidates()...)
 
 	for _, candidate := range candidates {
 		javaBin := filepath.Join(candidate, "bin", "java")
@@ -456,6 +696,31 @@ func java8Home() (string, bool) {
 	return filepath.Join(javaBase, "jre"), false
 }
 
+func java8GlobCandidates() []string {
+	patterns := []string{
+		"/usr/lib/jvm/*8*",
+		"/usr/lib/jvm/*1.8*",
+	}
+	candidates := []string{}
+	seen := map[string]bool{}
+	for _, pattern := range patterns {
+		matches, err := filepath.Glob(pattern)
+		if err != nil {
+			continue
+		}
+		for _, match := range matches {
+			for _, candidate := range []string{filepath.Join(match, "jre"), match} {
+				if seen[candidate] {
+					continue
+				}
+				seen[candidate] = true
+				candidates = append(candidates, candidate)
+			}
+		}
+	}
+	return candidates
+}
+
 func isJava8(javaBin string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -464,11 +729,37 @@ func isJava8(javaBin string) bool {
 	return err == nil && strings.Contains(string(output), `version "1.8.`)
 }
 
-func isPacmanPackageInstalled(pkg string) bool {
+func isPackageInstalled(support linuxSupport, pkg string) bool {
+	if pkg == "" || !support.Supported {
+		return false
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	return exec.CommandContext(ctx, "pacman", "-Q", pkg).Run() == nil
+	switch support.PackageManager {
+	case "pacman":
+		return exec.CommandContext(ctx, "pacman", "-Q", pkg).Run() == nil
+	case "apt":
+		output, err := exec.CommandContext(ctx, "dpkg-query", "-W", "-f=${db:Status-Status}", pkg).CombinedOutput()
+		return err == nil && strings.TrimSpace(string(output)) == "installed"
+	default:
+		return false
+	}
+}
+
+func packageDetail(support linuxSupport, pkg string) string {
+	if !support.Supported {
+		return "Distribuição ainda sem verificação automática de pacote"
+	}
+	switch support.PackageManager {
+	case "apt":
+		return "Pacote apt: " + pkg
+	case "pacman":
+		return "Pacote pacman: " + pkg
+	default:
+		return "Pacote: " + pkg
+	}
 }
 
 func isPCSCActive() bool {
@@ -1248,17 +1539,4 @@ func upsertEnv(env []string, key, value string) []string {
 		}
 	}
 	return append(env, prefix+value)
-}
-
-func packageLabel(pkg string) string {
-	switch pkg {
-	case "ccid":
-		return "Driver do leitor"
-	case "opensc":
-		return "Leitura do certificado"
-	case "pcsclite":
-		return "Comunicação PC/SC"
-	default:
-		return pkg
-	}
 }

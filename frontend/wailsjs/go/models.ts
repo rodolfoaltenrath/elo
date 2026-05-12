@@ -41,6 +41,8 @@ export namespace main {
 	    packages: StatusItem[];
 	    allOk: boolean;
 	    checkedAt: string;
+	    platformName: string;
+	    packageManager: string;
 	    platformWarning?: string;
 	
 	    static createFrom(source: any = {}) {
@@ -57,6 +59,8 @@ export namespace main {
 	        this.packages = this.convertValues(source["packages"], StatusItem);
 	        this.allOk = source["allOk"];
 	        this.checkedAt = source["checkedAt"];
+	        this.platformName = source["platformName"];
+	        this.packageManager = source["packageManager"];
 	        this.platformWarning = source["platformWarning"];
 	    }
 	
