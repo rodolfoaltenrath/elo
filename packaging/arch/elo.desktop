@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Elo
+Comment=Conecta Linux ao PJe/Projudi com certificado digital
+Exec=elo
+Icon=elo
+Terminal=false
+Categories=Utility;Security;
+StartupNotify=true

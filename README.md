@@ -37,3 +37,17 @@ wails build
 ```
 
 O binário Linux é gerado em `build/bin/elo`.
+
+## Pacote Arch/AUR
+
+Este repositório inclui uma receita inicial de pacote Arch:
+
+```bash
+makepkg -si
+```
+
+Para publicar no AUR com o nome `elo`, copie `PKGBUILD` e `.SRCINFO` para o repositório `ssh://aur@aur.archlinux.org/elo.git` e faça o push. Depois disso, usuários poderão instalar com:
+
+```bash
+yay -S elo
+```
