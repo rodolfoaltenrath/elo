@@ -48,6 +48,12 @@ const healthSummary = computed(() => {
   }
 })
 
+const platformLabel = computed(() => {
+  if (!status.value?.platformName) return 'Detectando sistema'
+  const manager = status.value.packageManager ? ` • ${status.value.packageManager}` : ''
+  return `${status.value.platformName}${manager}`
+})
+
 const nextAction = computed(() => {
   if (!status.value) {
     return {
@@ -236,6 +242,7 @@ function setNotice(type, text) {
       <div>
         <p class="eyebrow">Linux + Certificado Digital</p>
         <h1>Elo</h1>
+        <span class="platform-label">{{ platformLabel }}</span>
       </div>
 
       <button class="ghost-button" :disabled="Boolean(busy)" @click="refreshStatus">
@@ -298,6 +305,10 @@ function setNotice(type, text) {
 
     <section v-if="notice.text" class="notice" :class="notice.type">
       {{ notice.text }}
+    </section>
+
+    <section v-if="status?.platformWarning" class="notice warning">
+      {{ status.platformWarning }}
     </section>
 
     <section v-if="driverHelp" class="driver-guide">
@@ -445,6 +456,14 @@ button {
   font-weight: 800;
   letter-spacing: 0;
   text-transform: uppercase;
+}
+
+.platform-label {
+  display: inline-block;
+  margin-top: 8px;
+  color: #8f9dad;
+  font-size: 0.92rem;
+  font-weight: 750;
 }
 
 h1,
@@ -719,6 +738,11 @@ button:disabled {
 .notice.error {
   color: #ffd2cb;
   background: rgba(211, 107, 70, 0.12);
+}
+
+.notice.warning {
+  color: #ffe4ad;
+  background: rgba(255, 181, 71, 0.12);
 }
 
 .driver-guide {
