@@ -2,7 +2,7 @@
 
 pkgname=elo
 pkgver=0.1.0
-pkgrel=1
+pkgrel=2
 pkgdesc='Conecta Linux ao PJe/Projudi com Java 8 isolado e certificados digitais'
 arch=('x86_64')
 url='https://github.com/rodolfoaltenrath/elo'
@@ -11,8 +11,12 @@ depends=(
   'gtk3'
   'webkit2gtk-4.1'
   'nss'
+  'openssl'
+  'opensc'
   'pcsclite'
   'polkit'
+  'usbutils'
+  'ccid'
 )
 makedepends=(
   'git'
@@ -24,8 +28,6 @@ makedepends=(
 optdepends=(
   'jre8-openjdk: execução de assinadores Java legados'
   'icedtea-web: abertura de arquivos .jnlp'
-  'ccid: suporte a leitores smartcard CCID'
-  'opensc: diagnóstico e leitura de certificados'
   'pcsc-tools: ferramentas de diagnóstico PC/SC'
 )
 source=("${pkgname}::git+${url}.git#branch=main")

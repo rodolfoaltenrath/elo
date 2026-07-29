@@ -46,8 +46,11 @@ Este repositório inclui uma receita inicial de pacote Arch:
 makepkg -si
 ```
 
-Para publicar no AUR com o nome `elo`, copie `PKGBUILD` e `.SRCINFO` para o repositório `ssh://aur@aur.archlinux.org/elo.git` e faça o push. Depois disso, usuários poderão instalar com:
+O pacote compilado publicado no AUR pode ser instalado com:
 
 ```bash
-yay -S elo
+yay -S elo-bin
 ```
+
+Se a interface não abrir, execute `elo` no terminal. Erros fatais também são
+gravados em `~/.local/state/elo/elo.log` (ou em `$XDG_STATE_HOME/elo/elo.log`).

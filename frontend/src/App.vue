@@ -127,7 +127,10 @@ const driverHelp = computed(() => {
   }
 })
 
-onMounted(refreshStatus)
+onMounted(() => {
+  // Deixa o WebKit desenhar a janela antes de iniciar os diagnósticos externos.
+  requestAnimationFrame(() => requestAnimationFrame(refreshStatus))
+})
 
 async function refreshStatus() {
   await runBusy('status', async () => {
