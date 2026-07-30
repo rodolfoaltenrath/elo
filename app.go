@@ -18,7 +18,6 @@ const (
 	javaBase              = "/usr/lib/jvm/java-8-openjdk"
 	eloPKCS11Dir          = "/usr/local/lib/elo-pkcs11"
 	eloUdevRule           = "/etc/udev/rules.d/99-elo-smartcard.rules"
-	openscPKCS11Module    = "/usr/lib/opensc-pkcs11.so"
 	starSignTokenUdevRule = `SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="1059", ATTR{idProduct}=="0019", GROUP="pcscd", MODE="0660", TAG+="uaccess"`
 )
 
@@ -27,6 +26,7 @@ type packageSpec struct {
 	Label    string
 	Arch     string
 	Debian   string
+	Fedora   string
 	Required bool
 }
 
@@ -39,11 +39,11 @@ type linuxSupport struct {
 }
 
 var requiredPackages = []packageSpec{
-	{ID: "ccid", Label: "Driver do leitor", Arch: "ccid", Debian: "libccid", Required: true},
-	{ID: "opensc", Label: "Leitura do certificado", Arch: "opensc", Debian: "opensc", Required: true},
-	{ID: "pcsc", Label: "Comunicação PC/SC", Arch: "pcsclite", Debian: "pcscd", Required: true},
-	{ID: "pcsc-tools", Label: "Ferramentas do token", Arch: "pcsc-tools", Debian: "pcsc-tools", Required: false},
-	{ID: "nss-tools", Label: "Integração com navegador", Arch: "nss", Debian: "libnss3-tools", Required: true},
+	{ID: "ccid", Label: "Driver do leitor", Arch: "ccid", Debian: "libccid", Fedora: "pcsc-lite-ccid", Required: true},
+	{ID: "opensc", Label: "Leitura do certificado", Arch: "opensc", Debian: "opensc", Fedora: "opensc", Required: true},
+	{ID: "pcsc", Label: "Comunicação PC/SC", Arch: "pcsclite", Debian: "pcscd", Fedora: "pcsc-lite", Required: true},
+	{ID: "pcsc-tools", Label: "Ferramentas do token", Arch: "pcsc-tools", Debian: "pcsc-tools", Fedora: "pcsc-tools", Required: false},
+	{ID: "nss-tools", Label: "Integração com navegador", Arch: "nss", Debian: "libnss3-tools", Fedora: "nss-tools", Required: true},
 }
 
 var pkcs11ModuleCandidates = []string{
@@ -58,6 +58,18 @@ var pkcs11ModuleCandidates = []string{
 	"/usr/lib/libIDPrimePKCS11.so",
 	"/usr/local/lib/libIDPrimePKCS11.so",
 	"/usr/lib/pkcs11/libIDPrimePKCS11.so",
+	"/usr/lib64/libaetpkss.so",
+	"/usr/lib64/pkcs11/libaetpkss.so",
+	"/usr/lib64/libeToken.so",
+	"/usr/lib64/pkcs11/libeToken.so",
+	"/usr/lib64/libIDPrimePKCS11.so",
+	"/usr/lib64/pkcs11/libIDPrimePKCS11.so",
+	"/usr/lib64/opensc-pkcs11.so",
+	"/usr/lib64/pkcs11/opensc-pkcs11.so",
+	"/usr/lib/opensc-pkcs11.so",
+	"/usr/lib/pkcs11/opensc-pkcs11.so",
+	"/usr/lib/x86_64-linux-gnu/opensc-pkcs11.so",
+	"/usr/lib/aarch64-linux-gnu/opensc-pkcs11.so",
 }
 
 // App is bound to the Wails frontend.
@@ -202,7 +214,7 @@ func (a *App) AutoFix() (ActionResult, error) {
 	if !support.Supported {
 		return ActionResult{
 			OK:      false,
-			Message: "Ainda não há correção automática para " + support.displayName() + ". O Elo já automatiza Arch/CachyOS e Debian/Ubuntu/Deepin.",
+			Message: "Ainda não há correção automática para " + support.displayName() + ". O Elo já automatiza Arch/CachyOS, Fedora e Debian/Ubuntu/Deepin.",
 		}, nil
 	}
 
@@ -442,18 +454,21 @@ func validateDriverFile(path string) (string, string, error) {
 }
 
 func detectLinuxSupport() linuxSupport {
+	return linuxSupportFromOSRelease(runtime.GOOS, osReleaseValues())
+}
+
+func linuxSupportFromOSRelease(goos string, values map[string]string) linuxSupport {
 	support := linuxSupport{
-		ID:             runtime.GOOS,
-		Name:           runtime.GOOS,
-		Family:         runtime.GOOS,
+		ID:             goos,
+		Name:           goos,
+		Family:         goos,
 		PackageManager: "",
 		Supported:      false,
 	}
-	if runtime.GOOS != "linux" {
+	if goos != "linux" {
 		return support
 	}
 
-	values := osReleaseValues()
 	id := strings.ToLower(values["ID"])
 	name := values["PRETTY_NAME"]
 	if name == "" {
@@ -474,6 +489,12 @@ func detectLinuxSupport() linuxSupport {
 	if hasAny(tokens, "debian", "ubuntu", "deepin", "linuxmint", "pop", "zorin") {
 		support.Family = "Debian/Ubuntu"
 		support.PackageManager = "apt"
+		support.Supported = true
+		return support
+	}
+	if hasAny(tokens, "fedora") {
+		support.Family = "Fedora"
+		support.PackageManager = "dnf"
 		support.Supported = true
 		return support
 	}
@@ -549,6 +570,8 @@ func autoFixPackages(support linuxSupport) []string {
 		return append([]string{"jre8-openjdk", "icedtea-web"}, packages...)
 	case "apt":
 		return append([]string{"icedtea-netx"}, packages...)
+	case "dnf":
+		return append([]string{"icedtea-web"}, packages...)
 	default:
 		return packages
 	}
@@ -561,6 +584,8 @@ func driverInstallPackages(support linuxSupport) []string {
 		return append([]string{"libarchive"}, packages...)
 	case "apt":
 		return append([]string{"libarchive-tools"}, packages...)
+	case "dnf":
+		return append([]string{"libarchive"}, packages...)
 	default:
 		return packages
 	}
@@ -583,6 +608,8 @@ func (spec packageSpec) nameFor(support linuxSupport) string {
 		return spec.Debian
 	case "pacman":
 		return spec.Arch
+	case "dnf":
+		return spec.Fedora
 	default:
 		if spec.Arch != "" {
 			return spec.Arch
@@ -610,17 +637,35 @@ func packageInstallCommands(support linuxSupport, packages []string) []string {
 			"apt-get update",
 			"apt-get install -y " + strings.Join(quoted, " "),
 		}
+	case "dnf":
+		return []string{"dnf install -y " + strings.Join(quoted, " ")}
 	default:
 		return nil
 	}
 }
 
 func java8InstallFallbackCommands(support linuxSupport) []string {
-	if support.PackageManager != "apt" {
+	switch support.PackageManager {
+	case "apt":
+		return []string{
+			"apt-get install -y openjdk-8-jre || apt-get install -y openjdk-8-jre-headless || true",
+		}
+	case "dnf":
+		return []string{
+			"if ! dnf install -y java-1.8.0-openjdk && ! dnf install -y java-1.8.0-openjdk-headless; then",
+			"cat > /etc/yum.repos.d/elo-adoptium.repo <<'EOF'",
+			"[Adoptium]",
+			"name=Eclipse Adoptium",
+			"baseurl=https://packages.adoptium.net/artifactory/rpm/fedora/$releasever/$basearch",
+			"enabled=1",
+			"gpgcheck=1",
+			"gpgkey=https://packages.adoptium.net/artifactory/api/gpg/key/public",
+			"EOF",
+			"dnf install -y temurin-8-jre",
+			"fi",
+		}
+	default:
 		return nil
-	}
-	return []string{
-		"apt-get install -y openjdk-8-jre || apt-get install -y openjdk-8-jre-headless || true",
 	}
 }
 
@@ -648,7 +693,11 @@ func driverInstallScript(support linuxSupport, path, kind string) string {
 			common = append(common, extractDebCommands(path)...)
 		}
 	case "rpm":
-		common = append(common, fmt.Sprintf("bsdtar -xf %s -C /", shellQuote(path)))
+		if support.PackageManager == "dnf" {
+			common = append(common, fmt.Sprintf("dnf install -y %s", shellQuote(path)))
+		} else {
+			common = append(common, fmt.Sprintf("bsdtar -xf %s -C /", shellQuote(path)))
+		}
 	case "tar":
 		common = append(common, fmt.Sprintf("bsdtar -xf %s -C /", shellQuote(path)))
 	case "so":
@@ -743,6 +792,8 @@ func isPackageInstalled(support linuxSupport, pkg string) bool {
 	case "apt":
 		output, err := exec.CommandContext(ctx, "dpkg-query", "-W", "-f=${db:Status-Status}", pkg).CombinedOutput()
 		return err == nil && strings.TrimSpace(string(output)) == "installed"
+	case "dnf":
+		return exec.CommandContext(ctx, "rpm", "-q", pkg).Run() == nil
 	default:
 		return false
 	}
@@ -757,6 +808,8 @@ func packageDetail(support linuxSupport, pkg string) string {
 		return "Pacote apt: " + pkg
 	case "pacman":
 		return "Pacote pacman: " + pkg
+	case "dnf":
+		return "Pacote dnf: " + pkg
 	default:
 		return "Pacote: " + pkg
 	}
@@ -943,7 +996,6 @@ func firstReaderLine(text string) string {
 
 func pkcs11TokenStatus() (bool, string) {
 	modules := installedPKCS11Modules()
-	modules = append(modules, openscPKCS11Module)
 
 	var lastDetail string
 	for _, module := range modules {
@@ -1011,7 +1063,12 @@ func pkcs11TokenStatusForModule(module string) (bool, string) {
 }
 
 func pkcs11ObjectsStatus() (bool, string) {
-	return pkcs11ObjectsStatusForModule(openscPKCS11Module)
+	for _, module := range installedPKCS11Modules() {
+		if strings.Contains(filepath.Base(module), "opensc-pkcs11") {
+			return pkcs11ObjectsStatusForModule(module)
+		}
+	}
+	return false, "Módulo PKCS#11 do OpenSC não encontrado"
 }
 
 func pkcs11ObjectsStatusForModule(module string) (bool, string) {
@@ -1053,7 +1110,7 @@ func installedPKCS11Modules() []string {
 			continue
 		}
 		for _, match := range matches {
-			if seen[match] || match == openscPKCS11Module {
+			if seen[match] {
 				continue
 			}
 			info, err := os.Stat(match)
