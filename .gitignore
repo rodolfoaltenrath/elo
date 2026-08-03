@@ -1,4 +1,6 @@
 build/bin/
+build/fedora-jre8/
+dist/
 frontend/dist/
 node_modules/
 dist/

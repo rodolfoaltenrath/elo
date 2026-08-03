@@ -214,7 +214,7 @@ func (a *App) AutoFix() (ActionResult, error) {
 	if !support.Supported {
 		return ActionResult{
 			OK:      false,
-			Message: "Ainda não há correção automática para " + support.displayName() + ". O Elo já automatiza Arch/CachyOS, Fedora e Debian/Ubuntu/Deepin.",
+			Message: "Ainda não há correção automática para " + support.displayName() + ". O Elo já automatiza Arch/CachyOS, Debian/Ubuntu/Deepin e Fedora.",
 		}, nil
 	}
 
@@ -585,7 +585,7 @@ func driverInstallPackages(support linuxSupport) []string {
 	case "apt":
 		return append([]string{"libarchive-tools"}, packages...)
 	case "dnf":
-		return append([]string{"libarchive"}, packages...)
+		return append([]string{"bsdtar"}, packages...)
 	default:
 		return packages
 	}
@@ -722,6 +722,7 @@ func directoryExists(path string) bool {
 
 func java8Home() (string, bool) {
 	candidates := []string{
+		"/opt/elo/jre8",
 		filepath.Join(javaBase, "jre"),
 		javaBase,
 		"/usr/lib/jvm/java-8-openjdk-amd64/jre",

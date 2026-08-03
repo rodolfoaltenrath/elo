@@ -13,15 +13,15 @@ O projeto evita que pessoas usuárias precisem configurar Java legado, smartcard
 - Registro do driver PKCS#11 no banco NSS do navegador.
 - Instalação assistida de driver proprietário fornecido pela pessoa usuária.
 - Execução isolada de arquivos `.jnlp` e `.jar` com Java 8.
-- Detecção automática da distribuição Linux para escolher `pacman`, `dnf` ou `apt`.
+- Detecção automática da distribuição Linux para escolher `pacman`, `apt` ou `dnf`.
 
 ## Distribuições
 
 O Elo tem automação inicial para:
 
 - Arch Linux, CachyOS, Manjaro, EndeavourOS e derivados com `pacman`.
-- Fedora e derivados com `dnf`.
 - Debian, Ubuntu, Deepin, Linux Mint, Pop!_OS, Zorin OS e derivados com `apt`.
+- Fedora e derivados com `dnf`.
 
 Em outras distribuições, o app ainda pode diagnosticar parte do ambiente, mas bloqueia a correção automática até existir uma estratégia segura para o gerenciador de pacotes.
 
@@ -55,29 +55,36 @@ yay -S elo-bin
 
 ## Pacote Fedora/RPM
 
-No Fedora, instale primeiro as ferramentas de compilação:
+O instalador gráfico para Fedora x86_64 é gerado no próprio GitHub, sem exigir
+Go, Node, Wails ou ferramentas RPM no computador Windows:
+
+1. Abra a aba **Actions** do repositório no GitHub.
+2. Escolha **Gerar instalador Fedora RPM** e clique em **Run workflow**.
+3. Informe a versão, aguarde o job terminar e baixe o artefato
+   `elo-fedora-rpm-<versão>`.
+4. Extraia o `.zip`, copie o arquivo `.rpm` para o pendrive e leve-o ao Fedora.
+5. No Fedora, dê dois cliques no `.rpm`, escolha **Instalar** e informe a senha.
+
+O pacote inclui o frontend, o executável e um Java 8 Temurin privado em
+`/opt/elo/jre8`. GTK/WebKit, PC/SC, OpenSC, NSS e as demais integrações do
+sistema são declaradas no RPM e instaladas automaticamente pelo gerenciador de
+software. A primeira instalação precisa de internet caso esses componentes ainda
+não estejam no Fedora; o `.rpm` isolado não é um instalador totalmente offline.
+
+Para compilar diretamente em uma máquina Fedora, instale as ferramentas:
 
 ```bash
-sudo dnf install -y golang nodejs npm rpm-build gcc gtk3-devel webkit2gtk4.1-devel
+sudo dnf install -y curl gcc gcc-c++ git golang gzip gtk3-devel nodejs npm \
+  pkgconf-pkg-config rpm tar webkit2gtk4.1-devel
 ```
 
-Gere o binário e o pacote RPM com:
+Depois gere o pacote:
 
 ```bash
-./packaging/fedora/build-rpm.sh
+bash packaging/fedora/build-rpm.sh 0.1.0
 ```
 
-O RPM será gravado em `dist/` e pode ser instalado com:
-
-```bash
-sudo dnf install ./dist/*/elo-*.rpm
-```
-
-Ao executar **Corrigir Problemas**, o Elo usa o `dnf` para instalar `pcsc-lite`,
-`pcsc-lite-ccid`, `opensc`, `pcsc-tools`, `nss-tools` e IcedTea-Web. Para o
-Java 8, ele tenta primeiro o OpenJDK dos repositórios do Fedora. Nas versões em
-que esse pacote não está mais disponível, configura o repositório RPM oficial
-do Eclipse Adoptium, com verificação GPG, e instala o Temurin 8 JRE.
+O resultado fica em `dist/`.
 
 Se a interface não abrir, execute `elo` no terminal. Erros fatais também são
 gravados em `~/.local/state/elo/elo.log` (ou em `$XDG_STATE_HOME/elo/elo.log`).

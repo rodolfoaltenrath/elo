@@ -1,0 +1,60 @@
+name: Gerar instalador Fedora RPM
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Versão do Elo sem o prefixo v
+        required: true
+        default: 0.1.0
+        type: string
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  rpm:
+    name: RPM x86_64
+    runs-on: ubuntu-latest
+    container: fedora:43
+
+    steps:
+      - name: Instalar ferramentas de compilação
+        run: >-
+          dnf install -y
+          curl gcc gcc-c++ git golang gzip
+          gtk3-devel nodejs npm pkgconf-pkg-config rpm tar
+          webkit2gtk4.1-devel
+
+      - name: Baixar o código
+        uses: actions/checkout@v4
+
+      - name: Definir a versão
+        shell: bash
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="${REQUESTED_VERSION:-0.1.0}"
+          fi
+          if [[ ! "$version" =~ ^[0-9][0-9A-Za-z.+_-]*$ ]]; then
+            echo "Versão inválida: $version" >&2
+            exit 1
+          fi
+          echo "ELO_VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Compilar e empacotar
+        shell: bash
+        run: bash packaging/fedora/build-rpm.sh "$ELO_VERSION"
+
+      - name: Guardar o instalador
+        uses: actions/upload-artifact@v4
+        with:
+          name: elo-fedora-rpm-${{ env.ELO_VERSION }}
+          path: dist/*.rpm
+          if-no-files-found: error

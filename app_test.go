@@ -73,6 +73,16 @@ func TestFedoraPackageMapping(t *testing.T) {
 	}
 }
 
+func TestDnfInstallCommandQuotesPackageNames(t *testing.T) {
+	support := linuxSupport{PackageManager: "dnf", Supported: true}
+	commands := packageInstallCommands(support, []string{"opensc", "nss-tools"})
+
+	want := "dnf install -y 'opensc' 'nss-tools'"
+	if len(commands) != 1 || commands[0] != want {
+		t.Fatalf("packageInstallCommands() = %v, want %q", commands, want)
+	}
+}
+
 func TestFedoraAutoFixUsesDNFAndJava8(t *testing.T) {
 	support := linuxSupport{PackageManager: "dnf", Supported: true}
 	script := autoFixScript(support)

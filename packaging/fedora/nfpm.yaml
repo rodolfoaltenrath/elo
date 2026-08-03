@@ -1,0 +1,59 @@
+name: elo
+arch: amd64
+platform: linux
+version: ${ELO_VERSION}
+version_schema: semver
+release: ${ELO_RPM_RELEASE}
+maintainer: Rodolfo Altenrath <rodolfoaltenrath@users.noreply.github.com>
+description: |-
+  Conecta Linux ao PJe/Projudi com Java 8 isolado e certificados digitais.
+  Inclui uma interface gráfica para diagnosticar e configurar tokens A3,
+  PC/SC, PKCS#11 e navegadores.
+vendor: Elo
+homepage: https://github.com/rodolfoaltenrath/elo
+license: Custom
+
+depends:
+  - bash
+  - bsdtar
+  - gtk3
+  - icedtea-web
+  - nss-tools
+  - opensc
+  - openssl
+  - pcsc-lite
+  - pcsc-lite-ccid
+  - polkit
+  - systemd
+  - systemd-udev
+  - usbutils
+
+recommends:
+  - pcsc-tools
+
+contents:
+  - src: build/bin/elo
+    dst: /usr/bin/elo
+    file_info:
+      mode: 0755
+  - src: build/appicon.png
+    dst: /usr/share/icons/hicolor/1024x1024/apps/elo.png
+    file_info:
+      mode: 0644
+  - src: packaging/arch/elo.desktop
+    dst: /usr/share/applications/elo.desktop
+    file_info:
+      mode: 0644
+  - src: README.md
+    dst: /usr/share/doc/elo/README.md
+    file_info:
+      mode: 0644
+  - src: build/fedora-jre8/
+    dst: /opt/elo/jre8
+    type: tree
+
+rpm:
+  group: Applications/System
+  summary: Conecta o Fedora ao PJe/Projudi com certificado digital
+  packager: Rodolfo Altenrath <rodolfoaltenrath@users.noreply.github.com>
+  compression: zstd
